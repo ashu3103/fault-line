@@ -22,7 +22,6 @@ typedef enum _mode
     INTERNAL_USE_SLOT,
 } mode;
 
-
 /**
  * The slot structure contains the metadata of the buffer except the contents
  */
@@ -30,15 +29,14 @@ typedef struct _slot
 {
     void* internal_address;    /**< The actual virtual address  */
     void* user_address;        /**< The user address */
-    size_t internal_size;      /**< The size of the memory with metadata and og data */
-    size_t user_size;          /**< The size of og data */
+    size_t internal_size;      /**< The size of the memory with metadata and original data */
+    size_t user_size;          /**< The size of original data */
     mode mode;                 /**< The mode of the slot */
 } slot;
 
 /**
  * 
  */
-
-
+void* malloc(size_t size);
 
 #endif // FL_H

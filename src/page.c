@@ -12,9 +12,12 @@ page_create(size_t size)
 {
     void* s = NULL;
 
-    /* This is similar to extending the heap boundary */
+    /* 
+        mmap chooses a page-aligned address (for most operating systems)
+        This is similar to extending the heap boundary
+    */
     s = mmap(start_address, size, PROT_READ | PROT_WRITE, 
-                MAP_ANONYMOUS, -1, 0);
+                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (s == NULL)
     {
         // error
@@ -29,6 +32,7 @@ page_create(size_t size)
 void
 page_allow_access(void* address, size_t size)
 {
+    if (!address) return;
     /* Check if the address is page-aligned */
     if ((uintptr_t)address % PAGE_SIZE)
     {
@@ -46,6 +50,7 @@ page_allow_access(void* address, size_t size)
 void
 page_deny_access(void* address, size_t size)
 {
+    if (!address) return;
     /* Check if the address is page-aligned */
     if ((uintptr_t)address % PAGE_SIZE)
     {

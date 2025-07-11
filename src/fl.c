@@ -1,0 +1,233 @@
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+
+#include "fl.h"
+#include "page.h"
+
+slot* slot_list = NULL;
+size_t slot_list_size = 0;
+
+int slot_count = 0;
+int unused_slots = 0;
+
+static size_t get_internal_size(bool optimize, size_t user_size);
+
+static void fl_init();
+static void* fl_memalign(size_t user_size);
+
+
+void* malloc(size_t size)
+{
+    void* allocation = NULL;
+    if (slot_list == NULL)
+    {
+        fl_init();
+    }
+
+    allocation = fl_memalign(size);
+}
+
+static void fl_init()
+{
+    size_t page_size = PAGE_SIZE; // in bytes
+    size_t size = MEMORY_CREATION_SIZE; // in bytes
+    size_t slack;
+  
+    slot_list_size = page_size;
+
+    if (slot_list_size > size)
+    {
+        size = slot_list_size;
+    }
+    /* make size a multiple of page size */
+    if ((slack = size % page_size) != 0)
+    {
+        size += page_size - slack;
+    }
+
+    /* Ask for a decent amount of memory from the operating system */
+    slot_list = page_create(size);
+
+    /* Reserve first page for the slots and rest as memory pool */
+    slot_count = page_size / sizeof(slot);
+    /* initialize the slot area */
+    memset(slot_list, 0, slot_list_size);
+
+    /* The first slot should always points to the slot list itself */
+    slot_list[0].internal_address = slot_list[0].user_address = slot_list;
+    slot_list[0].internal_size = slot_list[0].user_size = slot_list_size;
+    slot_list[0].mode = INTERNAL_USE_SLOT;
+
+    /* The second slot points to the rest of the memory pool */
+    if (size > slot_list_size)
+    {
+        slot_list[1].internal_address = slot_list[1].user_address = (void*)((char*)slot_list[0].internal_address + slot_list[0].internal_size);
+        slot_list[1].internal_size = slot_list[1].user_size = size - slot_list[0].internal_size;
+        slot_list[1].mode = FREE_SLOT;
+    }
+    /* disable protection of slot list, only allow access when its being retrieved */
+    page_deny_access(slot_list[0].internal_address, slot_list[0].internal_size);
+    /* disable protection of free memory space, so that user can't read free space */
+    page_deny_access(slot_list[1].internal_address, slot_list[1].internal_size);
+
+    unused_slots = slot_count - 2;
+}
+
+static void*
+fl_memalign(size_t user_size)
+{
+    size_t page_size = PAGE_SIZE;
+    size_t size = MEMORY_CREATION_SIZE; // in bytes
+    size_t internal_size = 0;
+    slot* s = NULL;
+    size_t slack = 0;
+    int count = 0;
+    slot* empty_slot = NULL;
+    slot* free_fit_slot = NULL;
+
+    /* Initialize malloc data structures */
+    if (slot_list == NULL)
+    {
+        fl_init();
+    }
+
+    /* Get the internal size */
+    internal_size = get_internal_size(false, user_size);
+
+    /* Allow access to slot list */
+    page_allow_access(slot_list, slot_list_size);
+
+    /* Check if slots are exhausted, atleast 8 unused slots must be present */
+    if (unused_slots <= 8)
+    {
+        // allocate slots
+    }
+
+    /**
+     * Find the free space using best-fit algorithm
+     * 
+     * Only a free slot can become an allocated slot or internal use slot
+     * 
+     * Case 1: One or many free slots
+     * - try to choose the best fit
+     * - if found and slot size > internal size, divide it into two free slots and allocate one
+     * Case 2: No free slot or no fit free slot
+     * - allocate a new chunk by requesting from OS
+     * 
+     * In both the cases we will be needing unused slot, for case 1 we will divide the free slots into
+     * two and use an unused slot to mark it free (while first free slot will be marked allocated), while in
+     * case 2, we will create a new free memory chunk.
+     * 
+     */
+    for (s = slot_list, count = 0; count < slot_count; count++)
+    {
+        if (s->mode == FREE_SLOT && s->internal_size >= internal_size) // find best fit slot
+        {
+            if (!free_fit_slot || s->internal_size < free_fit_slot->internal_size)
+            {
+                free_fit_slot = s;
+                /* just in case we get an exact size */
+                if (free_fit_slot->internal_size == internal_size)
+                {
+                    break;
+                }
+            }
+        }
+        else if (!empty_slot && s->mode == IOTA_SLOT) // get one unused slot (it is guranteed that we get an unused slot)
+        {
+            empty_slot = s;
+        }
+        s++;
+    }
+
+    /* if no free slot found, allocate a new chunk */
+    if (!free_fit_slot)
+    {
+        if (!empty_slot)
+        {
+            // error
+            exit(1);
+        }
+
+        if (internal_size > size)
+        {
+            size = internal_size;
+        }
+
+        if ((slack = size % page_size) != 0)
+        {
+            size += page_size - slack;
+        }
+        
+        empty_slot->internal_address = page_create(size);
+        empty_slot->internal_size = size;
+        empty_slot->mode = FREE_SLOT;
+        
+        unused_slots--;
+        // TODO: try to coalesce with the previous chunk, when impl free()
+        
+        /* Restore all states that was before memalign */
+        page_deny_access(slot_list[0].internal_address, slot_list[0].internal_size);
+        /* new free space created, try again */
+        return fl_memalign(user_size);
+    }
+
+    /* Divide the free space into two */
+    if (free_fit_slot->internal_size > internal_size)
+    {
+        empty_slot->internal_address = (void*)((char*)free_fit_slot->internal_address + internal_size);
+        empty_slot->internal_size = free_fit_slot->internal_size - internal_size;
+        free_fit_slot->internal_size = internal_size;
+        unused_slots--;
+    }
+    
+    /* Finally set the appropriate user address and size */
+    void* user_address = (void*)((char*)free_fit_slot->internal_address + page_size); // reserve one page in free page for dead page
+    if (internal_size - page_size > 0)
+    {
+        /* Set up the live page */
+        page_allow_access(user_address, internal_size - page_size);
+    }
+    
+    free_fit_slot->user_address = user_address;
+    free_fit_slot->user_size = user_size;
+    free_fit_slot->mode = ALLOCATED_SLOT;
+
+    /* Revoke access again to protect reads and write on slot list by */
+    page_deny_access(slot_list, slot_list_size);
+}
+
+static size_t
+get_internal_size(bool optimize, size_t user_size)
+{
+    size_t internal_size = 0;
+    size_t slack;
+    size_t page_size = PAGE_SIZE;
+    int alignment = CHUNK_ALIGNMENT;
+
+    /* align user size with the defined alignment of malloc */
+    if ((slack = user_size % alignment) != 0)
+    {
+        user_size += alignment - slack;
+    }
+
+    if (optimize)
+    {
+        // TODO: canary bytes
+        return 0;
+    }
+    else
+    {
+        /* Add a guard page in front of user page */
+        internal_size = user_size + page_size;
+        if ((slack = internal_size % page_size) != 0)
+        {
+            internal_size += page_size - slack;
+        }
+    }
+
+    return internal_size;
+}
