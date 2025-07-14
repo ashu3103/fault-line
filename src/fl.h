@@ -35,8 +35,15 @@ typedef struct _slot
 } slot;
 
 /**
- * 
+ * fault-line version of malloc()
+ * @param size The size of buffer to be allocated
  */
 void* malloc(size_t size);
+
+/**
+ * fault-line version of free()
+ * @param arr The user address of buffer memory to be freed
+ */
+void free(void* arr);
 
 #endif // FL_H

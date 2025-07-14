@@ -20,10 +20,13 @@ int unused_slots = 0;
 bool is_internal = false;
 
 static size_t get_internal_size(bool optimize, size_t user_size);
+static slot* get_prev_free_slot(slot* curr_slot);
+static slot* get_next_free_slot(slot* curr_slot);
 
 static void fl_init();
 static void* fl_memalign(size_t user_size);
 static void fl_allocate_more_slots();
+static slot* fl_get_slot_from_user_address(void* addr);
 
 void* malloc(size_t size)
 {
@@ -34,6 +37,58 @@ void* malloc(size_t size)
     }
 
     allocation = fl_memalign(size);
+}
+
+void free(void* addr)
+{
+    slot* prev_s = NULL;
+    slot* nxt_s = NULL;
+    slot* s;
+
+    if (addr == NULL)
+    {
+        // no error
+    }
+
+    /* get the slot which is associated with the user address */
+    s = fl_get_slot_from_user_address(addr);
+
+    if (s == NULL)
+    {
+        // error (free of non initialized heap/arbitary address)
+    }
+
+    if (s->mode == FREE_SLOT)
+    {
+        // error (double free)
+    }
+
+    s->user_address = 0;
+    s->user_size = 0;
+    s->mode = FREE_SLOT;
+
+    /* try to coalesce with the neighbouring slots */
+    prev_s = get_prev_free_slot(s);
+    nxt_s = get_next_free_slot(s);
+
+    /* coalesce previous slot */
+    if (prev_s != NULL)
+    {
+        s->internal_address = prev_s->internal_address;
+        s->internal_size = prev_s->internal_size + s->internal_size;
+        /* mark previous slot as unused */
+        prev_s->mode = IOTA_SLOT;
+        memset(prev_s, 0, sizeof(slot));
+    }
+
+    /* coalesce next slot */
+    if (nxt_s != NULL)
+    {
+        s->internal_size = nxt_s->internal_size + s->internal_size;
+        /* mark next slot as unused */
+        nxt_s->mode = IOTA_SLOT;
+        memset(nxt_s, 0, sizeof(slot)); 
+    }
 }
 
 static void
@@ -292,4 +347,80 @@ get_internal_size(bool optimize, size_t user_size)
     }
 
     return internal_size;
+}
+
+static slot*
+fl_get_slot_from_user_address(void* addr)
+{
+    slot* s = NULL;
+    int count = 0;
+
+    /* get the slot */
+    for (s = slot_list, count = slot_count; count; count--)
+    {
+        if (s->user_address == addr && !(s->mode == IOTA_SLOT))
+        {
+            return s;
+        }
+        s++;
+    }
+
+    return NULL;
+}
+
+static slot*
+get_prev_free_slot(slot* curr_slot)
+{
+    slot* prev = NULL;
+    slot* s = NULL;
+    int count = 0;
+
+    prev = slot_list;
+
+    for (s = prev++, count = 1, prev = slot_list; count < slot_count; count++)
+    {
+        if (s == curr_slot)
+        {
+            break;
+        }
+        prev++;
+        s++;
+    }
+
+    /* get the prev slot only if its free */
+    if (prev != NULL && prev->mode != FREE_SLOT)
+    {   
+        prev = NULL;
+    }
+
+    return prev;
+}
+
+static slot*
+get_next_free_slot(slot* curr_slot)
+{
+    slot* nxt = NULL;
+    slot* s = NULL;
+    int count = 0;
+
+    nxt = slot_list;
+    nxt++;
+
+    for (s = slot_list, count = 0; count < slot_count - 1; count++)
+    { 
+        if (s == curr_slot)
+        {
+            break;
+        }
+        s++;
+        nxt++;
+    }
+
+    /* get the prev slot only if its free */
+    if (nxt != NULL && nxt->mode != FREE_SLOT)
+    {   
+        nxt = NULL;
+    }
+
+    return nxt;
 }
