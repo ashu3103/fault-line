@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define get_address(base, offset) \
+    (void*)((char*)base + offset)
+
 /**
  * The mode corresponding to each slot, indicates the status of the memory buffer
  * 

@@ -20,13 +20,13 @@ int unused_slots = 0;
 bool is_internal = false;
 
 static size_t get_internal_size(bool optimize, size_t user_size);
-static slot* get_prev_free_slot(slot* curr_slot);
-static slot* get_next_free_slot(slot* curr_slot);
+static slot* get_slot_prev_to_internal_address(void* addr);
+static slot* get_slot_for_internal_address(void* addr);
+static slot* get_slot_for_user_address(void* addr);
 
 static void fl_init();
 static void* fl_memalign(size_t user_size);
 static void fl_allocate_more_slots();
-static slot* fl_get_slot_from_user_address(void* addr);
 
 void* malloc(size_t size)
 {
@@ -51,11 +51,16 @@ void free(void* addr)
     }
 
     /* get the slot which is associated with the user address */
-    s = fl_get_slot_from_user_address(addr);
+    s = get_slot_for_user_address(addr);
 
     if (s == NULL)
     {
         // error (free of non initialized heap/arbitary address)
+    }
+
+    if (s == INTERNAL_USE_SLOT && !is_internal)
+    {
+        // error (can only free an internal slot if in internal mode)
     }
 
     if (s->mode == FREE_SLOT)
@@ -63,32 +68,40 @@ void free(void* addr)
         // error (double free)
     }
 
-    s->user_address = 0;
-    s->user_size = 0;
-    s->mode = FREE_SLOT;
-
     /* try to coalesce with the neighbouring slots */
-    prev_s = get_prev_free_slot(s);
-    nxt_s = get_next_free_slot(s);
+    prev_s = get_slot_prev_to_internal_address(s->internal_address);
+    nxt_s = get_slot_for_internal_address(get_address(s->internal_address, s->internal_size));
 
     /* coalesce previous slot */
-    if (prev_s != NULL)
+    if (prev_s != NULL && prev_s == FREE_SLOT)
     {
-        s->internal_address = prev_s->internal_address;
-        s->internal_size = prev_s->internal_size + s->internal_size;
+        prev_s->internal_size = prev_s->internal_size + s->internal_size;
+        prev_s->mode = FREE_SLOT;
         /* mark previous slot as unused */
-        prev_s->mode = IOTA_SLOT;
-        memset(prev_s, 0, sizeof(slot));
+        s->internal_address = s->user_address = 0;
+        s->internal_size = s->user_size = 0;
+        s->mode = IOTA_SLOT;
+
+        s = prev_s;
+        unused_slots++;
     }
 
     /* coalesce next slot */
-    if (nxt_s != NULL)
+    if (nxt_s != NULL && nxt_s->mode == FREE_SLOT)
     {
         s->internal_size = nxt_s->internal_size + s->internal_size;
         /* mark next slot as unused */
+        nxt_s->internal_address = nxt_s->user_address = 0;
+        nxt_s->internal_size = nxt_s->user_size = 0;
         nxt_s->mode = IOTA_SLOT;
-        memset(nxt_s, 0, sizeof(slot)); 
+        unused_slots++;
     }
+
+    s->user_address = s->internal_address;
+    s->user_size = s->internal_size;
+    s->mode = FREE_SLOT;
+
+    page_deny_access(s->internal_address, s->internal_size);
 }
 
 static void
@@ -126,7 +139,7 @@ fl_init()
     /* The second slot points to the rest of the memory pool */
     if (size > slot_list_size)
     {
-        slot_list[1].internal_address = slot_list[1].user_address = (void*)((char*)slot_list[0].internal_address + slot_list[0].internal_size);
+        slot_list[1].internal_address = slot_list[1].user_address = get_address(slot_list[0].internal_address, slot_list[0].internal_size);
         slot_list[1].internal_size = slot_list[1].user_size = size - slot_list[0].internal_size;
         slot_list[1].mode = FREE_SLOT;
     }
@@ -165,7 +178,7 @@ fl_allocate_more_slots()
     slot_count = new_slot_count;
 
     /* mark the old allocation as free */
-    // TODO: free()
+    free(old_slot_list);
     
     is_internal = false;
 }
@@ -276,7 +289,7 @@ fl_memalign(size_t user_size)
     /* Divide the free space into two */
     if (free_fit_slot->internal_size > internal_size)
     {
-        empty_slot->internal_address = (void*)((char*)free_fit_slot->internal_address + internal_size);
+        empty_slot->internal_address = get_address(free_fit_slot->internal_address, internal_size);
         empty_slot->internal_size = free_fit_slot->internal_size - internal_size;
         free_fit_slot->internal_size = internal_size;
         empty_slot->mode = FREE_SLOT;
@@ -293,7 +306,7 @@ fl_memalign(size_t user_size)
     }
     else
     {
-        user_address = (void*)((char*)free_fit_slot->internal_address + page_size); // reserve one page in free page for dead page
+        user_address = get_address(free_fit_slot->internal_address, page_size); // reserve one page in free page for dead page
         if (internal_size - page_size > 0)
         {
             /* Set up the live page */
@@ -350,7 +363,7 @@ get_internal_size(bool optimize, size_t user_size)
 }
 
 static slot*
-fl_get_slot_from_user_address(void* addr)
+get_slot_for_user_address(void* addr)
 {
     slot* s = NULL;
     int count = 0;
@@ -369,58 +382,37 @@ fl_get_slot_from_user_address(void* addr)
 }
 
 static slot*
-get_prev_free_slot(slot* curr_slot)
+get_slot_prev_to_internal_address(void* addr)
 {
-    slot* prev = NULL;
-    slot* s = NULL;
+    slot* s = slot_list;
     int count = 0;
 
-    prev = slot_list;
-
-    for (s = prev++, count = 1, prev = slot_list; count < slot_count; count++)
+    for (; count < slot_count; count++)
     {
-        if (s == curr_slot)
+        if (addr == get_address(s->internal_address, s->internal_size))
         {
-            break;
+            return s;
         }
-        prev++;
         s++;
     }
 
-    /* get the prev slot only if its free */
-    if (prev != NULL && prev->mode != FREE_SLOT)
-    {   
-        prev = NULL;
-    }
-
-    return prev;
+    return NULL;
 }
 
 static slot*
-get_next_free_slot(slot* curr_slot)
+get_slot_for_internal_address(void* addr)
 {
-    slot* nxt = NULL;
     slot* s = NULL;
-    int count = 0;
+    int count = 1;
 
-    nxt = slot_list;
-    nxt++;
-
-    for (s = slot_list, count = 0; count < slot_count - 1; count++)
+    for (; count < slot_count; count++)
     { 
         if (s == curr_slot)
         {
             break;
         }
         s++;
-        nxt++;
     }
 
-    /* get the prev slot only if its free */
-    if (nxt != NULL && nxt->mode != FREE_SLOT)
-    {   
-        nxt = NULL;
-    }
-
-    return nxt;
+    return NULL;
 }
