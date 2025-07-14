@@ -403,13 +403,13 @@ static slot*
 get_slot_for_internal_address(void* addr)
 {
     slot* s = NULL;
-    int count = 1;
+    int count = 0;
 
     for (; count < slot_count; count++)
     { 
-        if (s == curr_slot)
+        if (s->internal_address == addr)
         {
-            break;
+            return s;
         }
         s++;
     }
