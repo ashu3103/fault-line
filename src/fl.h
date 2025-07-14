@@ -1,11 +1,9 @@
 #ifndef FL_H
 #define FL_H
 
-#include <stdio.h>
 #include <stdlib.h>
 
-#define get_address(base, offset) \
-    (void*)((char*)base + offset)
+#define get_address(base, offset) (void*)((char*)base + offset)
 
 /**
  * The mode corresponding to each slot, indicates the status of the memory buffer
@@ -47,6 +45,6 @@ void* malloc(size_t size);
  * fault-line version of free()
  * @param arr The user address of buffer memory to be freed
  */
-void free(void* arr);
+void free(void* user_address);
 
 #endif // FL_H

@@ -1,7 +1,6 @@
 #ifndef PAGE_H
 #define PAGE_H
 
-#include <stdio.h>
 #include <unistd.h>
 
 #define PAGE_SIZE            (size_t)sysconf(_SC_PAGESIZE)
