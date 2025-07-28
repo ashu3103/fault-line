@@ -10,16 +10,36 @@
 
 /**
  * Unbuffered version of vprintf
+ * We need this to remove the dependency on stdio.h library as printf implemented by
+ * stdio.h uses malloc()
  */
-static void handle_print_string(char* src);
-static void handle_print_integer(int src);
-static void handle_print_adress(void* src);
+static void handle_print_string(int stream, char* src);
+static void handle_print_integer(int stream, int src);
+static void handle_print_adress(int stream, void* src);
 
 static size_t strlength(const char* s);
-static void vprint(const char* format_string, ...);
+static void vprint(int stream, char* format_string, ...);
+
+void 
+print(char* format_string, ...)
+{
+    va_list args;
+    va_start(args, format_string);
+    vprint(1, format_string, args);
+    va_end(args);
+}
+
+void
+print_error(char* format_string, ...)
+{
+    va_list args;
+    va_start(args, format_string);
+    vprint(2, format_string, args);
+    va_end(args);
+}
 
 static void
-vprint(const char* format_string, ...)
+vprint(int stream, char* format_string, ...)
 {
     size_t fs_length = 0;
     size_t va_count = 0;
@@ -41,19 +61,20 @@ vprint(const char* format_string, ...)
             {
                 /* string */
                 case 's':
-                    handle_print_string(va_arg(args, char*));
+                    handle_print_string(stream, va_arg(args, char*));
                     break;
                 /* integer as base 10 */
                 case 'd':
-                    handle_print_integer(va_arg(args, int));
+                    handle_print_integer(stream, va_arg(args, int));
                     break;
                 /* address */
                 case 'a':
-                    handle_print_adress(va_arg(args, void*));
+                    handle_print_adress(stream, va_arg(args, void*));
                     break;
                 default:
                     va_end(args);
                     // error
+                    print_error("FL: Invalid formatter encountered\n");
                     return;
             }
 
@@ -61,7 +82,7 @@ vprint(const char* format_string, ...)
         }
 
         // Print the character encountered
-        write(1, format_string + i, sizeof(char));
+        write(stream, format_string + i, sizeof(char));
     }
 
     va_end(args);
@@ -84,14 +105,14 @@ strlength(const char* s)
 }
 
 static void 
-handle_print_string(char* src)
+handle_print_string(int stream, char* src)
 {
     size_t src_len = strlength(src);
-    write(1, src, sizeof(char)*src_len);
+    write(stream, src, sizeof(char)*src_len);
 }
 
 static void
-handle_print_integer(int src)
+handle_print_integer(int stream, int src)
 {
     char digit;
     int started = 0;
@@ -99,14 +120,14 @@ handle_print_integer(int src)
     if (src == 0)
     {
         digit = src + '0';
-        write(1, &digit, sizeof(char));
+        write(stream, &digit, sizeof(char));
         return;
     }
 
     if (src < 0)
     {
         digit = '-';
-        write(1, &digit, sizeof(char));
+        write(stream, &digit, sizeof(char));
         src = src*(-1);
     }
 
@@ -117,12 +138,12 @@ handle_print_integer(int src)
         if (digit == '0' && started == 0) continue;
         else started = 1;
 
-        write(1, &digit, sizeof(char));
+        write(stream, &digit, sizeof(char));
     }
 }
 
 static void
-handle_print_adress(void* src)
+handle_print_adress(int stream, void* src)
 {
     char chr;
 
@@ -133,9 +154,9 @@ handle_print_adress(void* src)
 
     /* print the 0x to represent pointer in hex */
     chr = '0';
-    write(1, &chr, sizeof(char));
+    write(stream, &chr, sizeof(char));
     chr = 'x';
-    write(1, &chr, sizeof(char));
+    write(stream, &chr, sizeof(char));
 
     num_nibbles = 2 * sizeof(uintptr_t);
 
@@ -146,8 +167,16 @@ handle_print_adress(void* src)
         if (digit != 0 || started || shift == 0)
         {
             chr = hex_digits[digit];
-            write(1, &chr, sizeof(char));
+            write(stream, &chr, sizeof(char));
             started = 1;
         }
     }
+}
+
+
+int main() {
+
+    print("adsfg%e\n");
+
+    return 0;
 }
