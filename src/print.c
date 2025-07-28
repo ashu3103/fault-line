@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "print.h"
 
@@ -93,6 +94,7 @@ static void
 handle_print_integer(int src)
 {
     char digit;
+    int started = 0;
 
     if (src == 0)
     {
@@ -109,12 +111,11 @@ handle_print_integer(int src)
     }
 
     int d = 1000000000;
-    bool is_started = false;
     while(d /= 10)
     {
         digit = ((src/d) % 10) + '0';
-        if (digit == '0' && !is_started) continue;
-        else is_started= true;
+        if (digit == '0' && started == 0) continue;
+        else started = 1;
 
         write(1, &digit, sizeof(char));
     }
@@ -123,36 +124,30 @@ handle_print_integer(int src)
 static void
 handle_print_adress(void* src)
 {
-    // const char hex_digits[] = "0123456789abcdef";
-    // uintptr_t sr_addr = (uintptr_t)src;
-    // int num_nibbles = 0;
-    // int started = 0;
+    char chr;
 
-    // /* print the 0x to represent pointer in hex */
-    // dst[curr_off++] = '0';
-    // if (curr_off < n) return;
-    // dst[curr_off++] = 'x';
-    // if (curr_off < n) return;
+    const char hex_digits[] = "0123456789abcdef";
+    uintptr_t sr_addr = (uintptr_t)src;
+    int num_nibbles = 0;
+    int started = 0;
 
-    // num_nibbles = 2 * sizeof(uintptr_t);
+    /* print the 0x to represent pointer in hex */
+    chr = '0';
+    write(1, &chr, sizeof(char));
+    chr = 'x';
+    write(1, &chr, sizeof(char));
 
-    // for (int shift = (num_nibbles - 1)*4; shift >= 0; shift -= 4)
-    // {
-    //     char digit = (sr_addr >> shift) & 0xF;
+    num_nibbles = 2 * sizeof(uintptr_t);
 
-    //     if (digit != 0 || started || shift == 0)
-    //     {
-    //         dst[curr_off++] = hex_digits[digit];
-    //         if (curr_off < n) return;
-    //         started = 1;
-    //     }
-    // }
+    for (int shift = (num_nibbles - 1)*4; shift >= 0; shift -= 4)
+    {
+        char digit = (sr_addr >> shift) & 0xF;
 
-}
-
-
-int main()
-{
-    vprint("asdh%du\n", 1020);
-    return 0;
+        if (digit != 0 || started || shift == 0)
+        {
+            chr = hex_digits[digit];
+            write(1, &chr, sizeof(char));
+            started = 1;
+        }
+    }
 }
