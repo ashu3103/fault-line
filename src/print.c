@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "print.h"
 
@@ -91,23 +92,32 @@ handle_print_string(char* src)
 static void
 handle_print_integer(int src)
 {
-    // if (src == 0)
-    // {
-    //     dst[curr_off++] = '0';
-    //     return;
-    // }
+    char digit;
 
-    // if (src < 0)
-    // {
-    //     dst[curr_off++] = '-';
-    //     src = src*(-1);
-    // }
+    if (src == 0)
+    {
+        digit = src + '0';
+        write(1, &digit, sizeof(char));
+        return;
+    }
 
-    // while(curr_off < n && src > 0)
-    // {
-    //     dst[curr_off++] = (src % 10) + '0';
-    //     src /= 10;
-    // }
+    if (src < 0)
+    {
+        digit = '-';
+        write(1, &digit, sizeof(char));
+        src = src*(-1);
+    }
+
+    int d = 1000000000;
+    bool is_started = false;
+    while(d /= 10)
+    {
+        digit = ((src/d) % 10) + '0';
+        if (digit == '0' && !is_started) continue;
+        else is_started= true;
+
+        write(1, &digit, sizeof(char));
+    }
 }
 
 static void
@@ -143,6 +153,6 @@ handle_print_adress(void* src)
 
 int main()
 {
-    vprint("asdh%su\n", "haha");
+    vprint("asdh%du\n", 1020);
     return 0;
 }
