@@ -4,7 +4,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h>
+#include <string.h>
 
 #include <print.h>
 
@@ -18,7 +18,7 @@ static void handle_print_integer(int stream, int src);
 static void handle_print_adress(int stream, void* src);
 
 static size_t strlength(const char* s);
-static void vprint(int stream, char* format_string, ...);
+static void vprint(int stream, char* format_string, va_list args);
 
 void 
 print(char* format_string, ...)
@@ -51,15 +51,13 @@ fl_error(char* format_string, ...)
 }
 
 static void
-vprint(int stream, char* format_string, ...)
+vprint(int stream, char* format_string, va_list args)
 {
     size_t fs_length = 0;
-    va_list args;
 
     /* find the length of format string */
     fs_length = strlength(format_string);
 
-    va_start(args, format_string);
     /* iterate through each character in format strig and accomodate it in buffer */
     for (size_t i = 0; i < fs_length; i++)
     {
@@ -94,8 +92,6 @@ vprint(int stream, char* format_string, ...)
         // Print the character encountered
         write(stream, format_string + i, sizeof(char));
     }
-
-    va_end(args);
 }
 
 static size_t
@@ -124,31 +120,31 @@ handle_print_string(int stream, char* src)
 static void
 handle_print_integer(int stream, int src)
 {
-    char digit;
-    int started = 0;
+    char digits[12];
+    memset(digits, '0', sizeof(digits));
 
     if (src == 0)
     {
-        digit = src + '0';
-        write(stream, &digit, sizeof(char));
+        char zero = '0';
+        write(stream, &zero, sizeof(char));
         return;
     }
 
     if (src < 0)
     {
-        digit = '-';
-        write(stream, &digit, sizeof(char));
+        char negative = '-';
+        write(stream, &negative, sizeof(char));
         src = src*(-1);
     }
 
-    int d = 1000000000;
-    while(d /= 10)
-    {
-        digit = ((src/d) % 10) + '0';
-        if (digit == '0' && started == 0) continue;
-        else started = 1;
+    int i = 0;
+    while (src > 0) {
+        digits[i++] = '0' + (src % 10);
+        src /= 10;
+    }
 
-        write(stream, &digit, sizeof(char));
+    while (i--) {
+        write(stream, &digits[i], sizeof(char));
     }
 }
 
