@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "print.h"
+#include <print.h>
 
 /**
  * Unbuffered version of vprintf
@@ -38,12 +38,22 @@ print_error(char* format_string, ...)
     va_end(args);
 }
 
+void 
+fl_error(char* format_string, ...)
+{
+   va_list args;
+    va_start(args, format_string);
+    vprint(2, format_string, args);
+    va_end(args);
+
+    /* exit the process */
+    _exit(1);
+}
+
 static void
 vprint(int stream, char* format_string, ...)
 {
     size_t fs_length = 0;
-    size_t va_count = 0;
-    size_t curr_offset = 0;
     va_list args;
 
     /* find the length of format string */
@@ -74,7 +84,7 @@ vprint(int stream, char* format_string, ...)
                 default:
                     va_end(args);
                     // error
-                    print_error("FL: Invalid formatter encountered\n");
+                    print_error("invalid formatter encountered\n");
                     return;
             }
 
@@ -162,7 +172,7 @@ handle_print_adress(int stream, void* src)
 
     for (int shift = (num_nibbles - 1)*4; shift >= 0; shift -= 4)
     {
-        char digit = (sr_addr >> shift) & 0xF;
+        int digit = (sr_addr >> shift) & 0xF;
 
         if (digit != 0 || started || shift == 0)
         {

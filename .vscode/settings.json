@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "bitset": "c",
+        "algorithm": "c",
+        "format": "c",
+        "bit": "c",
+        "cmath": "c",
+        "complex": "c",
+        "random": "c"
+    }
+}

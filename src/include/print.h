@@ -9,6 +9,7 @@
 
 void print(char* format_string, ...);
 void print_error(char* format_string, ...);
+void fl_error(char* format_string, ...);
 
 #endif // PRINT_H
 

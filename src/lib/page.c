@@ -2,7 +2,8 @@
 #include <stdint.h>
 #include <sys/mman.h>
 
-#include "page.h"
+#include <page.h>
+#include <print.h>
 
 void* start_address = NULL;
 
@@ -19,8 +20,7 @@ page_create(size_t size)
                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (s == NULL)
     {
-        // error
-        return s;
+        fl_error("page_create: unable to create a memory block with mmap\n");
     }
 
     /* type-cast to (char*) to perform pointer arithmatic; hint: "void* has no type" */
@@ -35,14 +35,12 @@ page_allow_access(void* address, size_t size)
     /* Check if the address is page-aligned */
     if ((uintptr_t)address % PAGE_SIZE)
     {
-        // error
-        return;
+        fl_error("page_allow_access: address: %a is not page aligned\n", address);
     }
 
     if (mprotect(address, size, PROT_READ | PROT_WRITE) == -1)
     {
-        //error
-        return;
+        fl_error("page_allow_access: mprotect error\n");
     }
 }
 
@@ -53,13 +51,11 @@ page_deny_access(void* address, size_t size)
     /* Check if the address is page-aligned */
     if ((uintptr_t)address % PAGE_SIZE)
     {
-        // error
-        return;
+        fl_error("page_deny_access: address: %a is not page aligned\n", address);
     }
 
     if (mprotect(address, size, PROT_NONE) == -1)
     {
-        //error
-        return;
+        fl_error("page_deny_access: mprotect error\n");
     }
 }

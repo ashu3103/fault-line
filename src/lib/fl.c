@@ -2,8 +2,9 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "fl.h"
-#include "page.h"
+#include <fl.h>
+#include <page.h>
+#include <print.h>
 
 slot* slot_list = NULL;
 size_t slot_list_size = 0;
@@ -12,8 +13,8 @@ int slot_count = 0;
 int unused_slots = 0;
 
 /* 
-    Since we'll be calling malloc from inside of static functions forexample to allocate more slots
-    We need a flag to mark if the new allocated chunk is for internal use or not
+    Since we'll be calling malloc from inside of static functions for example to allocate more 
+    slots. We need a flag to mark if the new allocated chunk is for internal use or not!
 */
 bool is_internal = false;
 
@@ -35,6 +36,7 @@ void* malloc(size_t size)
     }
 
     allocation = fl_memalign(size);
+    return allocation;
 }
 
 void free(void* addr)
@@ -46,6 +48,7 @@ void free(void* addr)
     if (addr == NULL)
     {
         // no error
+        return;
     }
 
     /* get the slot which is associated with the user address */
@@ -53,17 +56,17 @@ void free(void* addr)
 
     if (s == NULL)
     {
-        // error (free of non initialized heap/arbitary address)
+        fl_error("free(): free of unintialized heap\n");
     }
 
-    if (s == INTERNAL_USE_SLOT && !is_internal)
+    if (s->mode == INTERNAL_USE_SLOT && !is_internal)
     {
-        // error (can only free an internal slot if in internal mode)
+        fl_error("free(): how did u get this address??\n");
     }
 
     if (s->mode == FREE_SLOT)
     {
-        // error (double free)
+        fl_error("free(): double free of address: %a\n", s->user_address);
     }
 
     /* try to coalesce with the neighbouring slots */
@@ -71,7 +74,7 @@ void free(void* addr)
     nxt_s = get_slot_for_internal_address(get_address(s->internal_address, s->internal_size));
 
     /* coalesce previous slot */
-    if (prev_s != NULL && prev_s == FREE_SLOT)
+    if (prev_s != NULL && prev_s->mode == FREE_SLOT)
     {
         prev_s->internal_size = prev_s->internal_size + s->internal_size;
         prev_s->mode = FREE_SLOT;
@@ -257,8 +260,7 @@ fl_memalign(size_t user_size)
     {
         if (!empty_slot)
         {
-            // error
-            exit(1);
+            fl_error("malloc(): no empty slots found\n"); // TODO: just exit no print
         }
 
         if (internal_size > size)
