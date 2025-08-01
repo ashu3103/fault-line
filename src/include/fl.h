@@ -19,7 +19,6 @@ typedef enum _mode
     IOTA_SLOT = 0,
     FREE_SLOT,
     ALLOCATED_SLOT,
-    PROTECTED_SLOT,
     INTERNAL_USE_SLOT,
 } mode;
 
