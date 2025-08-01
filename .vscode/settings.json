@@ -6,6 +6,8 @@
         "bit": "c",
         "cmath": "c",
         "complex": "c",
-        "random": "c"
+        "random": "c",
+        "page.h": "c",
+        "fl.h": "c"
     }
 }
