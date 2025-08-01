@@ -16,6 +16,8 @@
 static void handle_print_string(int stream, char* src);
 static void handle_print_integer(int stream, int src);
 static void handle_print_adress(int stream, void* src);
+static void handle_print_char(int stream, char c);
+static void handle_print_unsigned_long(int stream, unsigned long src);
 
 static size_t strlength(const char* s);
 static void vprint(int stream, char* format_string, va_list args);
@@ -71,9 +73,17 @@ vprint(int stream, char* format_string, va_list args)
                 case 's':
                     handle_print_string(stream, va_arg(args, char*));
                     break;
+                /* character */
+                case 'c':
+                    handle_print_char(stream, (va_arg(args, int) + '0'));
+                    break;
                 /* integer as base 10 */
                 case 'd':
                     handle_print_integer(stream, va_arg(args, int));
+                    break;
+                /* unsigned long */
+                case 'U':
+                    handle_print_unsigned_long(stream, va_arg(args, unsigned long));
                     break;
                 /* address */
                 case 'a':
@@ -117,23 +127,47 @@ handle_print_string(int stream, char* src)
     write(stream, src, sizeof(char)*src_len);
 }
 
+static void 
+handle_print_unsigned_long(int stream, unsigned long src)
+{
+    char digits[20];  // Enough for 64-bit unsigned long (max ~20 digits)
+    int i = 0;
+
+    if (src == 0) {
+        handle_print_char(stream, '0');
+        return;
+    }
+
+    while (src > 0) {
+        digits[i++] = '0' + (src % 10);
+        src /= 10;
+    }
+
+    while (i--) {
+        handle_print_char(stream, digits[i]);
+    }
+}
+
+static void
+handle_print_char(int stream, char c)
+{
+    write(stream, &c, sizeof(char));
+}
+
 static void
 handle_print_integer(int stream, int src)
 {
     char digits[12];
-    memset(digits, '0', sizeof(digits));
 
     if (src == 0)
     {
-        char zero = '0';
-        write(stream, &zero, sizeof(char));
+        handle_print_char(stream, '0');
         return;
     }
 
     if (src < 0)
     {
-        char negative = '-';
-        write(stream, &negative, sizeof(char));
+        handle_print_char(stream, '-');
         src = src*(-1);
     }
 
@@ -144,7 +178,7 @@ handle_print_integer(int stream, int src)
     }
 
     while (i--) {
-        write(stream, &digits[i], sizeof(char));
+        handle_print_char(stream, digits[i]);
     }
 }
 
@@ -160,9 +194,9 @@ handle_print_adress(int stream, void* src)
 
     /* print the 0x to represent pointer in hex */
     chr = '0';
-    write(stream, &chr, sizeof(char));
+    handle_print_char(stream, '0');
     chr = 'x';
-    write(stream, &chr, sizeof(char));
+    handle_print_char(stream, 'x');
 
     num_nibbles = 2 * sizeof(uintptr_t);
 
@@ -173,7 +207,7 @@ handle_print_adress(int stream, void* src)
         if (digit != 0 || started || shift == 0)
         {
             chr = hex_digits[digit];
-            write(stream, &chr, sizeof(char));
+            handle_print_char(stream, chr);
             started = 1;
         }
     }
