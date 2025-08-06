@@ -5,7 +5,7 @@
 
 #define PAGE_SIZE            (size_t)sysconf(_SC_PAGESIZE)
 
-#define CHUNK_ALIGNMENT      8            // Assume that every chunk in malloc is 8 byte aligned
+#define CHUNK_ALIGNMENT      16           // Assume that every chunk in malloc is 16 byte aligned
 #define MEMORY_CREATION_SIZE 1024 * 1024  // Create this much memory in a single request
 
 /**
