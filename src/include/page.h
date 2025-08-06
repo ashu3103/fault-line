@@ -7,6 +7,7 @@
 
 #define CHUNK_ALIGNMENT      16           // Assume that every chunk in malloc is 16 byte aligned
 #define MEMORY_CREATION_SIZE 1024 * 1024  // Create this much memory in a single request
+#define NUM_CANARY_BYTES     2            // Total number of canary bytes
 
 /**
  * Create a memory block of a given size

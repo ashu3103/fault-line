@@ -2,10 +2,11 @@
 #define FL_H
 
 #include <stdlib.h>
+#include <page.h>
 
 #define get_address(base, offset) (void*)((char*)base + offset)
 #define get_bin_index(internal_size) (int)(internal_size / 16 - 3)
-#define get_bin_size(index) (size_t)((size_t)(index + 3) * 16UL)
+#define get_bin_size(index) (size_t)((size_t)(index + 3) * CHUNK_ALIGNMENT)
 
 /**
  * The mode corresponding to each slot, indicates the status of the memory buffer

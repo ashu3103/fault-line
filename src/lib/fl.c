@@ -187,7 +187,9 @@ fl_bin_allocator_init()
 
     number_of_bins = slot_list[1].internal_size / chunk_alignment;
     memset(slot_list[1].internal_address, 0, slot_list[1].internal_size);
-    threshold = page_size;
+
+    /* threshold is the maximum size of the bin */
+    threshold = get_bin_size(number_of_bins - 1);
 }
 
 static void
@@ -401,19 +403,22 @@ get_internal_size(bool optimize, size_t user_size)
         user_size += alignment - slack;
     }
 
-    if (optimize)
+    if (optimize && user_size <= (threshold - NUM_CANARY_BYTES * CHUNK_ALIGNMENT))
     {
-        // TODO: canary bytes
-        return 0;
-    }
-    else
-    {
-        /* Add a guard page in front of user page */
-        internal_size = user_size + page_size;
-        if ((slack = internal_size % page_size) != 0)
+        /* Add space for canary bytes before and after user space */
+        internal_size = user_size + NUM_CANARY_BYTES * CHUNK_ALIGNMENT;
+        if ((slack = internal_size % CHUNK_ALIGNMENT) != 0)
         {
-            internal_size += page_size - slack;
+            internal_size += CHUNK_ALIGNMENT - slack;
         }
+        return internal_size;
+    }
+
+    /* Add space for guard page in front of user space */
+    internal_size = user_size + page_size;
+    if ((slack = internal_size % page_size) != 0)
+    {
+        internal_size += page_size - slack;
     }
 
     return internal_size;
