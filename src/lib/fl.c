@@ -23,6 +23,10 @@ static slot* get_slot_prev_to_internal_address(void* addr);
 static slot* get_slot_for_internal_address(void* addr);
 static slot* get_slot_for_user_address(void* addr);
 
+/* wrappers */
+static void allow_access_internal();
+static void deny_access_internal();
+
 static void fl_init();
 static void* fl_memalign(size_t user_size);
 static void fl_allocate_more_slots();
@@ -52,10 +56,7 @@ void free(void* addr)
     }
 
     /* Allow access to slot list */
-    if (!is_internal)
-    {
-        page_allow_access(slot_list, slot_list_size);
-    }
+    allow_access_internal();
 
     /* get the slot which is associated with the user address */
     s = get_slot_for_user_address(addr);
@@ -110,11 +111,8 @@ void free(void* addr)
 
     page_deny_access(s->internal_address, s->internal_size);
 
-    /* Revoke access again to protect reads and write on slot list */
-    if (!is_internal)
-    {
-        page_deny_access(slot_list, slot_list_size);
-    }    
+    /* Revoke access again to protect reads and write on slot list and bin allocator */
+    deny_access_internal();
 }
 
 static void
@@ -150,16 +148,25 @@ fl_init()
     slot_list[0].mode = INTERNAL_USE_SLOT;
     unused_slots--;
 
-    /* The second slot points to the rest of the memory pool */
+    /* The second slot points to the bin allocator */
     if (size > slot_list_size)
     {
-        slot_list[1].internal_address = slot_list[1].user_address = get_address(slot_list[0].internal_address, slot_list[0].internal_size);
-        slot_list[1].internal_size = slot_list[1].user_size = size - slot_list[0].internal_size;
-        slot_list[1].mode = FREE_SLOT;
+        slot_list[1].internal_address = slot_list[1].user_size = get_address(slot_list[0].internal_address, slot_list[0].internal_size);
+        slot_list[1].internal_size = slot_list[1].user_size = page_size; // dedicate a page for bin allocator
+        slot_list[1].mode = INTERNAL_USE_SLOT;
+        // TODO: init bin allocator
         unused_slots--;
     }
-    /* disable protection of free memory space, so that user can't read free space */
-    // page_deny_access(slot_list[1].internal_address, slot_list[1].internal_size);
+
+    /* The third slot points to the rest of the memory pool */
+    if (size > slot_list_size + page_size)
+    {
+        slot_list[2].internal_address = slot_list[2].user_address = get_address(slot_list[1].internal_address, slot_list[1].internal_size);
+        slot_list[2].internal_size = slot_list[2].user_size = size - (slot_list[0].internal_size + slot_list[1].internal_size);
+        slot_list[2].mode = FREE_SLOT;
+        unused_slots--;
+    }
+
     /* disable protection of slot list, only allow access when its being retrieved */
     page_deny_access(slot_list, size);
 }
@@ -217,11 +224,8 @@ fl_memalign(size_t user_size)
     /* Get the internal size */
     internal_size = get_internal_size(false, user_size);
 
-    /* Allow access to slot list */
-    if (!is_internal)
-    {
-        page_allow_access(slot_list, slot_list_size);
-    }
+    /* Allow access to internal data structures */
+    allow_access_internal();
 
     /* Check if slots are exhausted, atleast 8 unused slots must be present */
     if (!is_internal && unused_slots <= 8)
@@ -332,11 +336,8 @@ fl_memalign(size_t user_size)
     free_fit_slot->user_address = user_address;
     free_fit_slot->user_size = user_size;
 
-    /* Revoke access again to protect reads and write on slot list */
-    if (!is_internal)
-    {
-        page_deny_access(slot_list, slot_list_size);
-    }
+    /* Revoke access again to protect reads and write on slot list and bin allocator */
+    deny_access_internal();
 
     return user_address;
 }
@@ -429,4 +430,26 @@ get_slot_for_internal_address(void* addr)
     }
 
     return NULL;
+}
+
+static void
+allow_access_internal()
+{
+    /* if called for internal data structure, we can be sure that access is allowed */
+    if (is_internal) return;
+    /* allow access to slot list */
+    page_allow_access(slot_list, slot_list_size);
+    /* allow access to bin allocator */
+    page_allow_access(slot_list[1].internal_address, slot_list[1].internal_size);
+}
+
+static void
+deny_access_internal()
+{
+    /* if called for internal data structure, we can be sure that access is allowed */
+    if (is_internal) return;
+    /* deny access to bin allocator */
+    page_deny_access(slot_list[1].internal_address, slot_list[1].internal_size);
+    /* allow access to slot list */
+    page_deny_access(slot_list, slot_list_size);
 }
