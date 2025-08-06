@@ -4,6 +4,8 @@
 #include <stdlib.h>
 
 #define get_address(base, offset) (void*)((char*)base + offset)
+#define get_bin_index(internal_size) (int)(internal_size / 16 - 3)
+#define get_bin_size(index) (size_t)((size_t)(index + 3) * 16UL)
 
 /**
  * The mode corresponding to each slot, indicates the status of the memory buffer
@@ -34,6 +36,15 @@ typedef struct _slot
     size_t user_size;          /**< The size of original data */
     mode mode;                 /**< The mode of the slot */
 } slot;
+
+/**
+ * free-list for bin allocator
+ */
+typedef struct _bin
+{
+    void* buffer_address;
+    bin* next;
+} bin;
 
 /**
  * fault-line version of malloc()

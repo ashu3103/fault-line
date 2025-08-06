@@ -6,11 +6,16 @@
 #include <page.h>
 #include <print.h>
 
+/* States of slot list */
 slot* slot_list = NULL;
 size_t slot_list_size = 0;
 
 int slot_count = 0;
 int unused_slots = 0;
+
+/* States of bin allocator */
+int number_of_bins = 0;
+size_t threshold = 0;
 
 /* 
     Since we'll be calling malloc from inside of static functions for example to allocate more 
@@ -26,8 +31,11 @@ static slot* get_slot_for_user_address(void* addr);
 /* wrappers */
 static void allow_access_internal();
 static void deny_access_internal();
+static void* guard_page_alloc(size_t user_size, size_t internal_size);
+static void* bin_page_alloc(size_t user_size, size_t internal_size);
 
 static void fl_init();
+static void fl_bin_allocator_init();
 static void* fl_memalign(size_t user_size);
 static void fl_allocate_more_slots();
 
@@ -154,7 +162,7 @@ fl_init()
         slot_list[1].internal_address = slot_list[1].user_size = get_address(slot_list[0].internal_address, slot_list[0].internal_size);
         slot_list[1].internal_size = slot_list[1].user_size = page_size; // dedicate a page for bin allocator
         slot_list[1].mode = INTERNAL_USE_SLOT;
-        // TODO: init bin allocator
+        fl_bin_allocator_init();
         unused_slots--;
     }
 
@@ -169,6 +177,17 @@ fl_init()
 
     /* disable protection of slot list, only allow access when its being retrieved */
     page_deny_access(slot_list, size);
+}
+
+static void
+fl_bin_allocator_init()
+{
+    size_t page_size = PAGE_SIZE; // in bytes
+    size_t chunk_alignment = CHUNK_ALIGNMENT;
+
+    number_of_bins = slot_list[1].internal_size / chunk_alignment;
+    memset(slot_list[1].internal_address, 0, slot_list[1].internal_size);
+    threshold = page_size;
 }
 
 static void
@@ -206,15 +225,8 @@ fl_allocate_more_slots()
 static void*
 fl_memalign(size_t user_size)
 {
-    size_t page_size = PAGE_SIZE;
-    size_t size = MEMORY_CREATION_SIZE; // in bytes
     size_t internal_size = 0;
-    slot* s = NULL;
-    size_t slack = 0;
-    int count = 0;
-    slot* empty_slot = NULL;
-    slot* free_fit_slot = NULL;
-    void* user_address = NULL;
+
     /* Initialize malloc data structures */
     if (slot_list == NULL)
     {
@@ -223,6 +235,28 @@ fl_memalign(size_t user_size)
 
     /* Get the internal size */
     internal_size = get_internal_size(false, user_size);
+
+    if (internal_size > threshold)
+    {
+        return guard_page_alloc(user_size, internal_size);
+    }
+    else
+    {
+        // TODO
+    }
+}
+
+static void*
+guard_page_alloc(size_t user_size, size_t internal_size)
+{
+    size_t page_size = PAGE_SIZE;
+    size_t size = MEMORY_CREATION_SIZE; // in bytes
+    slot* s = NULL;
+    size_t slack = 0;
+    int count = 0;
+    slot* empty_slot = NULL;
+    slot* free_fit_slot = NULL;
+    void* user_address = NULL;
 
     /* Allow access to internal data structures */
     allow_access_internal();
@@ -340,6 +374,14 @@ fl_memalign(size_t user_size)
     deny_access_internal();
 
     return user_address;
+}
+
+static void*
+bin_page_alloc(size_t user_size, size_t internal_size)
+{
+    /* get bin allocator index using internal_size */
+
+    /* if not available, request a size of threshold and divide it into (index+3)*16 chunks */
 }
 
 static size_t
