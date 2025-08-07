@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <fl.h>
 #include <page.h>
@@ -22,8 +23,9 @@ size_t threshold = 0;
     slots. We need a flag to mark if the new allocated chunk is for internal use or not!
 */
 bool is_internal = false;
+bool is_bin_internal = false;
 
-static size_t get_internal_size(bool optimize, size_t user_size);
+static size_t get_internal_size(bool* use_bin_alloc, size_t user_size);
 static slot* get_slot_prev_to_internal_address(void* addr);
 static slot* get_slot_for_internal_address(void* addr);
 static slot* get_slot_for_user_address(void* addr);
@@ -31,7 +33,7 @@ static slot* get_slot_for_user_address(void* addr);
 /* wrappers */
 static void allow_access_internal();
 static void deny_access_internal();
-static void* guard_page_alloc(size_t user_size, size_t internal_size);
+static void* pages_alloc(size_t user_size, size_t internal_size);
 static void* bin_page_alloc(size_t user_size, size_t internal_size);
 
 static void fl_init();
@@ -184,8 +186,11 @@ fl_bin_allocator_init()
 {
     size_t page_size = PAGE_SIZE; // in bytes
     size_t chunk_alignment = CHUNK_ALIGNMENT;
+    /* bin size must be less than page size and a multiple of chunk alignment */
+    int min_bin_size = CHUNK_ALIGNMENT;
+    int max_bin_size = page_size - 2 * CHUNK_ALIGNMENT;
 
-    number_of_bins = slot_list[1].internal_size / chunk_alignment;
+    number_of_bins = min(1, 1 + ((max_bin_size - min_bin_size) / CHUNK_ALIGNMENT));
     memset(slot_list[1].internal_address, 0, slot_list[1].internal_size);
 
     /* threshold is the maximum size of the bin */
@@ -228,7 +233,7 @@ static void*
 fl_memalign(size_t user_size)
 {
     size_t internal_size = 0;
-
+    bool use_bin_alloc = false;
     /* Initialize malloc data structures */
     if (slot_list == NULL)
     {
@@ -236,20 +241,20 @@ fl_memalign(size_t user_size)
     }
 
     /* Get the internal size */
-    internal_size = get_internal_size(false, user_size);
+    internal_size = get_internal_size(&use_bin_alloc, user_size);
 
-    if (internal_size > threshold)
+    if (!use_bin_alloc)
     {
-        return guard_page_alloc(user_size, internal_size);
+        return pages_alloc(user_size, internal_size);
     }
     else
     {
-        // TODO
+        return bin_page_alloc(user_size, internal_size);
     }
 }
 
 static void*
-guard_page_alloc(size_t user_size, size_t internal_size)
+pages_alloc(size_t user_size, size_t internal_size)
 {
     size_t page_size = PAGE_SIZE;
     size_t size = MEMORY_CREATION_SIZE; // in bytes
@@ -333,10 +338,7 @@ guard_page_alloc(size_t user_size, size_t internal_size)
         page_deny_access(empty_slot->internal_address, empty_slot->internal_size);
 
         /* Restore all states that was before memalign */
-        if (!is_internal)
-        {
-            page_deny_access(slot_list[0].internal_address, slot_list[0].internal_size);
-        }
+        deny_access_internal();
         /* new free space created, try again */
         return fl_memalign(user_size);
     }
@@ -357,7 +359,7 @@ guard_page_alloc(size_t user_size, size_t internal_size)
         user_address = free_fit_slot->internal_address;
         /* Set up the live page */
         page_allow_access(user_address, internal_size);
-        free_fit_slot->mode = INTERNAL_USE_SLOT;
+        free_fit_slot->mode = (!is_bin_internal) ? INTERNAL_USE_SLOT : ALLOCATED_BIN_SLOT;
     }
     else
     {
@@ -381,21 +383,91 @@ guard_page_alloc(size_t user_size, size_t internal_size)
 static void*
 bin_page_alloc(size_t user_size, size_t internal_size)
 {
+    int ind = -1;
+    void* user_address = NULL;
+    void* bin_list_addr = NULL;
+    uintptr_t* link = NULL;
+    int chunks = 0;
+    size_t page_size = PAGE_SIZE;
+    
     /* get bin allocator index using internal_size */
+    ind = get_bin_index(internal_size);
+    /* if not available, request a size of a page and divide it into (index+3)*16 chunks */
+    bin_list_addr = get_address(slot_list[2].internal_address, ind * CHUNK_ALIGNMENT);
+    link = (uintptr_t*)bin_list_addr;
 
-    /* if not available, request a size of threshold and divide it into (index+3)*16 chunks */
+    allow_access_internal();
+
+    if (bin_list_addr == NULL)
+    {
+demand:
+        // request a page with internal privilege
+        is_internal = true;
+        is_bin_internal = true;
+
+        void* start = malloc(page_size);
+
+        /* Divide the new chunk into bins */
+        chunks = page_size / internal_size;
+        uintptr_t bound = (uintptr_t)get_address(start, page_size);
+        for (int i = 0; i < chunks; i++)
+        {
+            void* bin_cur = get_address(start, i*internal_size);
+            void* bin_nxt = get_address(start, (i+1)*internal_size);
+            /* set the address of next bin in metadata */
+            if ((uintptr_t)bin_nxt < bound)
+            {
+                *((uintptr_t*)bin_cur) = (uintptr_t)bin_nxt;
+            }
+            /* set the canary bytes */
+            memset(get_address(bin_cur, CHUNK_ALIGNMENT), CANARY_BYTE, CHUNK_ALIGNMENT);
+        }
+        
+        *link = (uintptr_t)start;
+        // revoke internal privilege
+        is_internal = false;
+        is_bin_internal = false;
+    }
+
+    /* find a free bin slot */
+    uintptr_t* ptr = (uintptr_t*)bin_list_addr;
+    while(ptr)
+    {
+        uintptr_t metadata = *ptr;
+        // bin is free (lowest bit is 0)
+        if (metadata & 1 == 0)
+        {
+            *ptr = metadata | 1;
+            user_address = get_address((void*)ptr, 2*CHUNK_ALIGNMENT);
+            goto finish;
+        }
+
+        ptr = (uintptr_t*)(metadata ^ 1);
+    }
+    goto demand;
+
+finish:
+    deny_access_internal();
+    return user_address;
 }
 
 static size_t
-get_internal_size(bool optimize, size_t user_size)
+get_internal_size(bool* use_bin_alloc, size_t user_size)
 {
     size_t internal_size = 0;
     size_t slack;
     size_t page_size = PAGE_SIZE;
     int alignment = CHUNK_ALIGNMENT;
 
-    /* because user size will always be page-aligned */
-    if (is_internal) return user_size;
+    /* because user size will always be page-size multiple */
+    if (is_internal) {
+
+        if (user_size % page_size != 0)
+        {
+            fl_error("user size must be a multiple of page size for internal memory demands\n");
+        }
+        return user_size;
+    }
 
     /* align user size with the defined alignment of malloc */
     if ((slack = user_size % alignment) != 0)
@@ -403,14 +475,15 @@ get_internal_size(bool optimize, size_t user_size)
         user_size += alignment - slack;
     }
 
-    if (optimize && user_size <= (threshold - NUM_CANARY_BYTES * CHUNK_ALIGNMENT))
+    if (user_size <= (threshold - 2 * CHUNK_ALIGNMENT))
     {
-        /* Add space for canary bytes before and after user space */
-        internal_size = user_size + NUM_CANARY_BYTES * CHUNK_ALIGNMENT;
+        /* Add space for metadata and canary bytes before user space */
+        internal_size = user_size + 2 * CHUNK_ALIGNMENT;
         if ((slack = internal_size % CHUNK_ALIGNMENT) != 0)
         {
             internal_size += CHUNK_ALIGNMENT - slack;
         }
+        *use_bin_alloc = true;
         return internal_size;
     }
 
