@@ -16,7 +16,7 @@ int unused_slots = 0;
 
 /* States of bin allocator */
 int number_of_bins = 0;
-size_t threshold = 0;
+size_t threshold = 0; // should be compared with internal size
 
 /* 
     Since we'll be calling malloc from inside of static functions for example to allocate more 
@@ -190,7 +190,13 @@ fl_bin_allocator_init()
     int min_bin_size = CHUNK_ALIGNMENT;
     int max_bin_size = page_size - 2 * CHUNK_ALIGNMENT;
 
-    number_of_bins = min(1, 1 + ((max_bin_size - min_bin_size) / CHUNK_ALIGNMENT));
+    number_of_bins = page_size / CHUNK_ALIGNMENT;
+    while (number_of_bins && get_bin_size(number_of_bins-1) > page_size)
+    {
+        /* make sure the maximum bin size is less than page size */
+        number_of_bins--;
+    }
+
     memset(slot_list[1].internal_address, 0, slot_list[1].internal_size);
 
     /* threshold is the maximum size of the bin */
@@ -387,13 +393,14 @@ bin_page_alloc(size_t user_size, size_t internal_size)
     void* user_address = NULL;
     void* bin_list_addr = NULL;
     uintptr_t* link = NULL;
+    uintptr_t metadata = 0;
     int chunks = 0;
     size_t page_size = PAGE_SIZE;
     
     /* get bin allocator index using internal_size */
     ind = get_bin_index(internal_size);
     /* if not available, request a size of a page and divide it into (index+3)*16 chunks */
-    bin_list_addr = get_address(slot_list[2].internal_address, ind * CHUNK_ALIGNMENT);
+    bin_list_addr = get_address(slot_list[1].internal_address, ind * CHUNK_ALIGNMENT);
     link = (uintptr_t*)bin_list_addr;
 
     allow_access_internal();
@@ -406,6 +413,7 @@ demand:
         is_bin_internal = true;
 
         void* start = malloc(page_size);
+        memset(start, 0, page_size);
 
         /* Divide the new chunk into bins */
         chunks = page_size / internal_size;
@@ -431,19 +439,27 @@ demand:
 
     /* find a free bin slot */
     uintptr_t* ptr = (uintptr_t*)bin_list_addr;
-    while(ptr)
+    metadata = *ptr;
+
+    if (metadata == 0)
     {
-        uintptr_t metadata = *ptr;
-        // bin is free (lowest bit is 0)
-        if (metadata & 1 == 0)
+        fl_error("bin allocator not found");
+    }
+    
+    do {
+        link = (uintptr_t*)get_bin_alloc_next(metadata);
+        // check if the bin is free
+        if (!get_bin_alloc_status(metadata))
         {
-            *ptr = metadata | 1;
+            *ptr = metadata | 1UL;
             user_address = get_address((void*)ptr, 2*CHUNK_ALIGNMENT);
             goto finish;
         }
 
-        ptr = (uintptr_t*)(metadata ^ 1);
+        metadata = *((uintptr_t*)get_bin_alloc_next(metadata));
     }
+    while(metadata);
+    
     goto demand;
 
 finish:

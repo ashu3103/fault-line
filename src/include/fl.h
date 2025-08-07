@@ -5,8 +5,11 @@
 #include <page.h>
 
 #define get_address(base, offset) (void*)((char*)base + offset)
-#define get_bin_index(internal_size) (int)(internal_size / 16 - 3)
+#define get_bin_index(internal_size) (int)(internal_size / CHUNK_ALIGNMENT - 3)
 #define get_bin_size(index) (size_t)((size_t)(index + 3) * CHUNK_ALIGNMENT)
+
+#define get_bin_alloc_status(metadata)   (bool)((uintptr_t)metadata & 1)
+#define get_bin_alloc_next(metadata)     (uintptr_t)((uintptr_t)metadata & ~1UL)
 
 /**
  * The mode corresponding to each slot, indicates the status of the memory buffer
