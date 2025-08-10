@@ -177,10 +177,6 @@ fl_init()
         unused_slots--;
     }
 
-    print("slot list address: %a\n", slot_list[0].internal_address);
-    print("bin allocator address: %a\n", slot_list[1].internal_address);
-    print("free list address: %a\n", slot_list[2].internal_address);
-
     /* disable protection of slot list, only allow access when its being retrieved */
     page_deny_access(slot_list, size);
 }
@@ -198,12 +194,10 @@ fl_bin_allocator_init()
         /* make sure the maximum bin size is less than page size */
         number_of_bins--;
     }
-    print("Number of bins: %d\n", number_of_bins);
     memset(slot_list[1].internal_address, 0, slot_list[1].internal_size);
 
     /* threshold is the maximum size of the bin */
     threshold = get_bin_size(number_of_bins - 1);
-    print("Threshold: %U\n", threshold);
 }
 
 static void
@@ -251,14 +245,12 @@ fl_memalign(size_t user_size)
 
     /* Get the internal size */
     internal_size = get_internal_size(&use_bin_alloc, user_size);
-    print("Internal Size: %U\n", internal_size);
     if (!use_bin_alloc)
     {
         return pages_alloc(user_size, internal_size);
     }
     else
     {
-        print("Bin page alloc\n");
         return bin_page_alloc(user_size, internal_size);
     }
 }
