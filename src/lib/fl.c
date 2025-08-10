@@ -161,7 +161,7 @@ fl_init()
     /* The second slot points to the bin allocator */
     if (size > slot_list_size)
     {
-        slot_list[1].internal_address = slot_list[1].user_size = get_address(slot_list[0].internal_address, slot_list[0].internal_size);
+        slot_list[1].internal_address = slot_list[1].user_address = get_address(slot_list[0].internal_address, slot_list[0].internal_size);
         slot_list[1].internal_size = slot_list[1].user_size = page_size; // dedicate a page for bin allocator
         slot_list[1].mode = INTERNAL_USE_SLOT;
         fl_bin_allocator_init();
@@ -177,6 +177,10 @@ fl_init()
         unused_slots--;
     }
 
+    print("slot list address: %a\n", slot_list[0].internal_address);
+    print("bin allocator address: %a\n", slot_list[1].internal_address);
+    print("free list address: %a\n", slot_list[2].internal_address);
+
     /* disable protection of slot list, only allow access when its being retrieved */
     page_deny_access(slot_list, size);
 }
@@ -187,20 +191,19 @@ fl_bin_allocator_init()
     size_t page_size = PAGE_SIZE; // in bytes
     size_t chunk_alignment = CHUNK_ALIGNMENT;
     /* bin size must be less than page size and a multiple of chunk alignment */
-    int min_bin_size = CHUNK_ALIGNMENT;
-    int max_bin_size = page_size - 2 * CHUNK_ALIGNMENT;
 
-    number_of_bins = page_size / CHUNK_ALIGNMENT;
+    number_of_bins = page_size / chunk_alignment;
     while (number_of_bins && get_bin_size(number_of_bins-1) > page_size)
     {
         /* make sure the maximum bin size is less than page size */
         number_of_bins--;
     }
-
+    print("Number of bins: %d\n", number_of_bins);
     memset(slot_list[1].internal_address, 0, slot_list[1].internal_size);
 
     /* threshold is the maximum size of the bin */
     threshold = get_bin_size(number_of_bins - 1);
+    print("Threshold: %U\n", threshold);
 }
 
 static void
@@ -248,13 +251,14 @@ fl_memalign(size_t user_size)
 
     /* Get the internal size */
     internal_size = get_internal_size(&use_bin_alloc, user_size);
-
+    print("Internal Size: %U\n", internal_size);
     if (!use_bin_alloc)
     {
         return pages_alloc(user_size, internal_size);
     }
     else
     {
+        print("Bin page alloc\n");
         return bin_page_alloc(user_size, internal_size);
     }
 }
@@ -358,7 +362,7 @@ pages_alloc(size_t user_size, size_t internal_size)
         empty_slot->mode = FREE_SLOT;
         unused_slots--;
     }
-    
+
     /* Finally set the appropriate user address and size */
     if (is_internal)
     {
@@ -391,21 +395,20 @@ bin_page_alloc(size_t user_size, size_t internal_size)
 {
     int ind = -1;
     void* user_address = NULL;
-    void* bin_list_addr = NULL;
+    uintptr_t* bin_list_addr = NULL;
     uintptr_t* link = NULL;
     uintptr_t metadata = 0;
     int chunks = 0;
     size_t page_size = PAGE_SIZE;
     
+    allow_access_internal();
     /* get bin allocator index using internal_size */
     ind = get_bin_index(internal_size);
     /* if not available, request a size of a page and divide it into (index+3)*16 chunks */
-    bin_list_addr = get_address(slot_list[1].internal_address, ind * CHUNK_ALIGNMENT);
-    link = (uintptr_t*)bin_list_addr;
+    bin_list_addr = (uintptr_t*)get_address(slot_list[1].internal_address, ind * CHUNK_ALIGNMENT);
+    link = bin_list_addr;
 
-    allow_access_internal();
-
-    if (bin_list_addr == NULL)
+    if (!(*bin_list_addr))
     {
 demand:
         // request a page with internal privilege
@@ -438,7 +441,7 @@ demand:
     }
 
     /* find a free bin slot */
-    uintptr_t* ptr = (uintptr_t*)bin_list_addr;
+    uintptr_t* ptr = (uintptr_t*)(*bin_list_addr);
     metadata = *ptr;
 
     if (metadata == 0)
@@ -451,12 +454,13 @@ demand:
         // check if the bin is free
         if (!get_bin_alloc_status(metadata))
         {
-            *ptr = metadata | 1UL;
             user_address = get_address((void*)ptr, 2*CHUNK_ALIGNMENT);
+            *ptr = metadata | 1UL;
             goto finish;
         }
 
-        metadata = *((uintptr_t*)get_bin_alloc_next(metadata));
+        ptr = (uintptr_t*)get_bin_alloc_next(metadata);
+        metadata = *ptr;
     }
     while(metadata);
     

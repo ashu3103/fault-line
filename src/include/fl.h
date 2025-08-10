@@ -42,15 +42,6 @@ typedef struct _slot
 } slot;
 
 /**
- * free-list for bin allocator
- */
-typedef struct _bin
-{
-    void* buffer_address;
-    bin* next;
-} bin;
-
-/**
  * fault-line version of malloc()
  * @param size The size of buffer to be allocated
  */
