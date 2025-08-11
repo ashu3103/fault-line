@@ -16,5 +16,7 @@ int main()
     print("CHECK FROM HERE!!\n");
     free(addr);
     free(addr2);
+    addr = malloc(sizeof(char)*2000);
+    print("addr 4: %a\n", addr);
     return 0;
 }
