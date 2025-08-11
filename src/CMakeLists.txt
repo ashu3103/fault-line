@@ -27,23 +27,19 @@ add_compile_options(-Wunused)
 add_compile_options(-Wunused-result)
 
 #
+# Build fault-line shared library
+#
+add_library(fl_shared SHARED ${SOURCES})
+set_target_properties(fl_shared PROPERTIES OUTPUT_NAME fl LINKER_LANGUAGE C VERSION ${VERSION_STRING}
+                               SOVERSION ${VERSION_MAJOR})
+target_link_libraries(fl_shared PUBLIC)
+install(TARGETS fl_shared DESTINATION ${CMAKE_INSTALL_LIBDIR}/)
+
+#
 # Build fault-line
 #
-add_library(fl SHARED ${SOURCES})
-set_target_properties(fl PROPERTIES LINKER_LANGUAGE C VERSION ${VERSION_STRING}
+add_library(fl_static STATIC ${SOURCES})
+set_target_properties(fl_static PROPERTIES OUTPUT_NAME fl LINKER_LANGUAGE C VERSION ${VERSION_STRING}
                                SOVERSION ${VERSION_MAJOR})
-target_link_libraries(fl PUBLIC)
-install(TARGETS fl DESTINATION ${CMAKE_INSTALL_LIBDIR}/)
-
-#
-# Build fl
-#
-add_executable(fl-bin main.c ${RESOURCE_OBJECT})
-if (CMAKE_C_LINK_PIE_SUPPORTED)
-  set_target_properties(fl-bin PROPERTIES LINKER_LANGUAGE C OUTPUT_NAME fl POSITION_INDEPENDENT_CODE TRUE)
-else()
-  set_target_properties(fl-bin PROPERTIES LINKER_LANGUAGE C OUTPUT_NAME fl POSITION_INDEPENDENT_CODE FALSE)
-endif()
-target_link_libraries(fl-bin fl)
-
-install(TARGETS fl-bin DESTINATION ${CMAKE_INSTALL_BINDIR})
+target_link_libraries(fl_static PUBLIC)
+install(TARGETS fl_static DESTINATION ${CMAKE_INSTALL_LIBDIR}/)
