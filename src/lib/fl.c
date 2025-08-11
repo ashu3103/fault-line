@@ -29,6 +29,7 @@ static size_t get_internal_size(bool* use_bin_alloc, size_t user_size);
 static slot* get_slot_prev_to_internal_address(void* addr);
 static slot* get_slot_for_internal_address(void* addr);
 static slot* get_slot_for_user_address(void* addr);
+static bool check_canary_bytes(void* addr, uint8_t canary_byte);
 
 /* wrappers */
 static void allow_access_internal();
@@ -55,6 +56,7 @@ void* malloc(size_t size)
 
 void free(void* addr)
 {
+    size_t page_size = PAGE_SIZE;
     slot* prev_s = NULL;
     slot* nxt_s = NULL;
     slot* s;
@@ -67,6 +69,70 @@ void free(void* addr)
 
     /* Allow access to slot list */
     allow_access_internal();
+
+    /* Check if the address is not page-aligned, it should be in bin allocated area */
+    if ((uintptr_t)addr % page_size)
+    {
+        if ((uintptr_t)addr % CHUNK_ALIGNMENT)
+        {
+            fl_error("free(): free of unintialized heap\n");
+        }
+
+        /* get the metadata and check if the chunk is already free */
+        uintptr_t* metadata_ptr = (uintptr_t*)(addr - 2 * CHUNK_ALIGNMENT);
+        uintptr_t metadata = *metadata_ptr;
+        if (!get_bin_alloc_status(metadata))
+        {
+            fl_error("free(): double free of address: %a\n", addr);
+        }
+
+        /* check canary bytes */
+        uint8_t ind = *((uint8_t*)addr - CHUNK_ALIGNMENT);
+        if (!check_canary_bytes(get_address(addr, -1*CHUNK_ALIGNMENT), ind))
+        {
+            fl_error("free(): segmentation fault\n");
+        }
+
+        /* unset the metadata */
+        *metadata_ptr = get_bin_alloc_next(metadata);
+
+        /* find the extra page */
+        uintptr_t* link = *((uintptr_t*)get_address(slot_list[1].internal_address, ind*CHUNK_ALIGNMENT));
+        uintptr_t* prev_link = NULL;
+        bool inside_page = false;
+        bool prev_is_blank = true;
+
+        while (link)
+        {
+            /* at next page */
+            if ((uintptr_t)link % page_size == 0)
+            {
+                if (prev_is_blank && prev_link)
+                {
+                    /* set previous link to this link */
+                    *prev_link = (uintptr_t)link;
+                    /* find the allocated bin slot using link address */
+                    s = get_slot_for_internal_address((void*)link);
+                    if (s->mode != ALLOCATED_BIN_SLOT)
+                    {
+                        fl_error("free(): internal error\n");
+                    }
+
+                    goto coalesce;
+                }
+                prev_link = link;
+                prev_is_blank = true;
+            }
+
+            if (get_bin_alloc_status(*link))
+            {
+                prev_is_blank = false;
+            }
+            link = (uintptr_t*)get_bin_alloc_next(*link);
+        }
+
+        goto finish;
+    }
 
     /* get the slot which is associated with the user address */
     s = get_slot_for_user_address(addr);
@@ -86,6 +152,7 @@ void free(void* addr)
         fl_error("free(): double free of address: %a\n", s->user_address);
     }
 
+coalesce:
     /* try to coalesce with the neighbouring slots */
     prev_s = get_slot_prev_to_internal_address(s->internal_address);
     nxt_s = get_slot_for_internal_address(get_address(s->internal_address, s->internal_size));
@@ -120,7 +187,7 @@ void free(void* addr)
     s->mode = FREE_SLOT;
 
     page_deny_access(s->internal_address, s->internal_size);
-
+finish:
     /* Revoke access again to protect reads and write on slot list and bin allocator */
     deny_access_internal();
 }
@@ -385,7 +452,7 @@ pages_alloc(size_t user_size, size_t internal_size)
 static void*
 bin_page_alloc(size_t user_size, size_t internal_size)
 {
-    int ind = -1;
+    uint8_t ind = -1;
     void* user_address = NULL;
     uintptr_t* bin_list_addr = NULL;
     uintptr_t* link = NULL;
@@ -423,7 +490,7 @@ demand:
                 *((uintptr_t*)bin_cur) = (uintptr_t)bin_nxt;
             }
             /* set the canary bytes */
-            memset(get_address(bin_cur, CHUNK_ALIGNMENT), CANARY_BYTE, CHUNK_ALIGNMENT);
+            memset(get_address(bin_cur, CHUNK_ALIGNMENT), ind, CHUNK_ALIGNMENT);
         }
         
         *link = (uintptr_t)start;
@@ -584,4 +651,19 @@ deny_access_internal()
     page_deny_access(slot_list[1].internal_address, slot_list[1].internal_size);
     /* allow access to slot list */
     page_deny_access(slot_list, slot_list_size);
+}
+
+static bool
+check_canary_bytes(void* addr, uint8_t canary_byte)
+{
+    size_t chunk_alignment = CHUNK_ALIGNMENT;
+
+    for (size_t i = 0; i< chunk_alignment; i++)
+    {
+        if (*((uint8_t*)get_address(addr, i)) != canary_byte)
+        {
+            return false;
+        }
+    }
+    return true;
 }
